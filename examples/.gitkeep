@@ -1,0 +1,111 @@
+import sqlite3
+from datetime import datetime
+from collections import defaultdict
+
+class BudgetTool:
+    def __init__(self, db_name='budget_tool.db'):
+        self.db_name = db_name
+        self.conn = sqlite3.connect(db_name)
+        self.cursor = self.conn.cursor()
+
+    def add_budget(self, category, amount):
+        try:
+            self.cursor.execute("INSERT INTO budgets (category, budgeted_amount) VALUES (?, ?)", (category, amount))
+            self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            print(f"Error adding budget: {e}")
+            return False
+
+    def get_budgets(self):
+        self.cursor.execute("SELECT category, budgeted_amount FROM budgets")
+        return self.cursor.fetchall()
+
+    def add_actual(self, category, amount, date=None):
+        if date is None:
+            date = datetime.now().strftime("%Y-%m-%d")
+        try:
+            self.cursor.execute("INSERT INTO actuals (category, actual_amount, transaction_date) VALUES (?, ?, ?)", (category, amount, date))
+            self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            print(f"Error adding actual: {e}")
+            return False
+
+    def get_actuals(self):
+        self.cursor.execute("SELECT category, actual_amount, transaction_date FROM actuals")
+        return self.cursor.fetchall()
+
+    def get_variance_report(self):
+        budget_summary = defaultdict(float)
+        actual_summary = defaultdict(float)
+
+        for category, amount in self.get_budgets():
+            budget_summary[category] += amount
+
+        for category, amount, _ in self.get_actuals():
+            actual_summary[category] += amount
+
+        report = []
+        all_categories = sorted(list(set(budget_summary.keys()) | set(actual_summary.keys())))
+
+        for category in all_categories:
+            budgeted = budget_summary[category]
+            actual = actual_summary[category]
+            variance = budgeted - actual
+            
+            explanation = ""
+            if variance > 0:
+                explanation = f"Favorable variance: Spent {abs(variance):.2f} less than budgeted."
+            elif variance < 0:
+            	explanation = f"Unfavorable variance: Spent {abs(variance):.2f} more than budgeted."
+            else:
+                explanation = "No variance: Spent exactly as budgeted."
+            
+            report.append({
+                "category": category,
+                "budgeted": budgeted,
+                "actual": actual,
+                "variance": variance,
+                "explanation": explanation
+            })
+        return report
+
+    def close(self):
+        self.conn.close()
+
+if __name__ == '__main__':
+    # Example Usage:
+    tool = BudgetTool()
+
+    # Clear existing data for fresh example
+    tool.cursor.execute("DELETE FROM budgets")
+    tool.cursor.execute("DELETE FROM actuals")
+    tool.conn.commit()
+
+    # Add some budget items
+    tool.add_budget('Groceries', 300.00)
+    tool.add_budget('Utilities', 150.00)
+    tool.add_budget('Rent', 1000.00)
+    tool.add_budget('Dining Out', 200.00)
+
+    print("\nBudgets:")
+    for budget in tool.get_budgets():
+        print(budget)
+
+    # Add some actual expenses
+    tool.add_actual('Groceries', 250.50)
+    tool.add_actual('Utilities', 160.00)
+    tool.add_actual('Groceries', 60.00, '2025-08-20')
+    tool.add_actual('Dining Out', 220.00)
+    tool.add_actual('Transportation', 50.00) # New category not in budget
+
+    print("\nActuals:")
+    for actual in tool.get_actuals():
+        print(actual)
+
+    print("\nVariance Report:")
+    for item in tool.get_variance_report():
+        print(f"Category: {item['category']}, Budgeted: {item['budgeted']:.2f}, Actual: {item['actual']:.2f}, Variance: {item['variance']:.2f}, Explanation: {item['explanation']}")
+
+    tool.close()
